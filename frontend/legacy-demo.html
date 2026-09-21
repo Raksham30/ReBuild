@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Research Paper Assistant</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
+  h1 { font-size: 22px; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  h2 { font-size: 16px; margin-top: 0; }
+  button { background: #111; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+  input, textarea, select { width: 100%; padding: 8px; margin: 6px 0; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+  .paper-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
+  .citation { background: #f6f6f6; border-left: 3px solid #888; padding: 8px; margin: 6px 0; font-size: 13px; }
+  pre { white-space: pre-wrap; }
+  #status { font-size: 12px; color: #666; }
+</style>
+</head>
+<body>
+
+<h1>Research Paper Assistant</h1>
+<div id="status">checking backend...</div>
+
+<section>
+  <h2>1. Upload papers</h2>
+  <input type="file" id="fileInput" accept="application/pdf" />
+  <button onclick="uploadPaper()">Upload</button>
+  <div id="paperList"></div>
+</section>
+
+<section>
+  <h2>2. Ask a question</h2>
+  <textarea id="question" rows="2" placeholder="e.g. What datasets do these papers use?"></textarea>
+  <button onclick="askQuestion()">Ask</button>
+  <div id="askResult"></div>
+</section>
+
+<section>
+  <h2>3. Compare papers</h2>
+  <select id="compareDimension">
+    <option value="methods">Methods</option>
+    <option value="datasets">Datasets</option>
+    <option value="key_results">Key results</option>
+    <option value="limitations">Limitations</option>
+  </select>
+  <button onclick="comparePapers()">Compare selected</button>
+  <div id="compareResult"></div>
+</section>
+
+<section>
+  <h2>4. Literature review draft</h2>
+  <input type="text" id="litTopic" placeholder="Topic, e.g. long document question answering" />
+  <button onclick="litReview()">Generate draft</button>
+  <div id="litResult"></div>
+</section>
+
+<script>
+const API = "http://127.0.0.1:8010";
+let papers = [];
+
+async function refreshHealth() {
+  try {
+    const r = await fetch(`${API}/health`);
+    const d = await r.json();
+    document.getElementById("status").innerText = "backend: " + JSON.stringify(d.mode);
+  } catch (e) {
+    document.getElementById("status").innerText = "backend not reachable at " + API;
+  }
+}
+
+async function refreshPapers() {
+  const r = await fetch(`${API}/papers`);
+  papers = await r.json();
+  const el = document.getElementById("paperList");
+  el.innerHTML = papers.map(p => `
+    <div class="paper-row">
+      <input type="checkbox" class="paperCheck" value="${p.paper_id}" checked />
+      <strong>${p.title || p.filename}</strong>
+      <span style="color:#888">(${p.status}, ${p.num_pages}p)</span>
+    </div>
+  `).join("");
+}
+
+function selectedPaperIds() {
+  return Array.from(document.querySelectorAll(".paperCheck:checked")).map(el => el.value);
+}
+
+async function uploadPaper() {
+  const file = document.getElementById("fileInput").files[0];
+  if (!file) return alert("choose a PDF first");
+  const form = new FormData();
+  form.append("file", file);
+  await fetch(`${API}/papers/upload`, { method: "POST", body: form });
+  await refreshPapers();
+}
+
+async function askQuestion() {
+  const question = document.getElementById("question").value;
+  const paper_ids = selectedPaperIds();
+  const r = await fetch(`${API}/chat/ask`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, paper_ids: paper_ids.length ? paper_ids : null })
+  });
+  const d = await r.json();
+  document.getElementById("askResult").innerHTML =
+    `<pre>${d.answer}</pre>` +
+    d.citations.map(c => `<div class="citation"><b>${c.paper_title}</b> — ${c.section_type}, p.${c.page_start}-${c.page_end}<br>${c.snippet}</div>`).join("");
+}
+
+async function comparePapers() {
+  const paper_ids = selectedPaperIds();
+  const dimension = document.getElementById("compareDimension").value;
+  const r = await fetch(`${API}/compare`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids, dimension })
+  });
+  const d = await r.json();
+  document.getElementById("compareResult").innerHTML =
+    `<pre>${d.narrative}</pre><pre>${JSON.stringify(d.table, null, 2)}</pre>`;
+}
+
+async function litReview() {
+  const topic = document.getElementById("litTopic").value;
+  const paper_ids = selectedPaperIds();
+  const r = await fetch(`${API}/lit-review`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, paper_ids })
+  });
+  const d = await r.json();
+  document.getElementById("litResult").innerHTML =
+    `<pre>${d.answer}</pre>` +
+    d.citations.map(c => `<div class="citation"><b>${c.paper_title}</b> — ${c.section_type}, p.${c.page_start}-${c.page_end}<br>${c.snippet}</div>`).join("");
+}
+
+refreshHealth();
+refreshPapers();
+</script>
+</body>
+</html>

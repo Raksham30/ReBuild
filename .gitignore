@@ -1,0 +1,26 @@
+# Secrets -- never commit
+.env
+backend/firebase-service-account*.json
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local dev data
+backend/data/uploads/*
+backend/data/local_index/*
+backend/data/metadata.json
+backend/data/app.db
+!backend/data/uploads/.gitkeep
+!backend/data/local_index/.gitkeep
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
