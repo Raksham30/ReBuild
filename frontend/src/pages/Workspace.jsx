@@ -75,6 +75,14 @@ export default function Workspace() {
   const [gapLoading, setGapLoading] = useState(false);
   const [gapResult, setGapResult] = useState(null);
 
+  // Review Builder state
+  const [reviewIdea, setReviewIdea] = useState("");
+  const [reviewOwnResearch, setReviewOwnResearch] = useState("");
+  const [reviewInstructions, setReviewInstructions] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewResult, setReviewResult] = useState(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+
   async function loadAll() {
     try {
       const token = await getToken();
@@ -208,6 +216,56 @@ export default function Workspace() {
       setError(e.message);
     } finally {
       setAsking(false);
+    }
+  }
+
+  // ---- Review Builder handlers ----
+
+  async function handleGenerateReview(e) {
+    e.preventDefault();
+    if (!reviewIdea.trim() || !reviewOwnResearch.trim()) return;
+    setReviewLoading(true);
+    setError("");
+    setReviewResult(null);
+    try {
+      const token = await getToken();
+      const res = await api.write(token, workspaceId, {
+        idea: reviewIdea.trim(),
+        own_research: reviewOwnResearch.trim(),
+        instructions: reviewInstructions.trim() || null,
+        paper_ids: Array.from(selected),
+      });
+      setReviewResult(res);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    setPdfDownloading(true);
+    setError("");
+    try {
+      const token = await getToken();
+      const blob = await api.writePdf(token, workspaceId, {
+        idea: reviewIdea.trim(),
+        own_research: reviewOwnResearch.trim(),
+        instructions: reviewInstructions.trim() || null,
+        paper_ids: Array.from(selected),
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "review_draft.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPdfDownloading(false);
     }
   }
 
@@ -352,6 +410,89 @@ export default function Workspace() {
             {answer.citations.length > 0 && (
               <div className="citations">
                 {answer.citations.map((c, i) => (
+                  <div key={i} className="citation-card">
+                    <span className="citation-source">
+                      {c.paper_title} — {c.section_type}, p.{c.page_start}
+                      {c.page_end !== c.page_start ? `–${c.page_end}` : ""}
+                    </span>
+                    <p className="citation-snippet">{c.snippet}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ---- Review Builder ---- */}
+      <section className="panel">
+        <h2>Review Builder</h2>
+        <form onSubmit={handleGenerateReview} className="review-form">
+          <label className="review-label">
+            Idea / thesis
+            <input
+              type="text"
+              placeholder="e.g. Transformer attention is over-parameterised for small datasets"
+              value={reviewIdea}
+              onChange={(e) => setReviewIdea(e.target.value)}
+              required
+            />
+          </label>
+          <label className="review-label">
+            Your own research / findings
+            <textarea
+              rows={4}
+              placeholder="Describe your original contributions, experiments, or observations…"
+              value={reviewOwnResearch}
+              onChange={(e) => setReviewOwnResearch(e.target.value)}
+              required
+            />
+          </label>
+          <label className="review-label">
+            Formatting instructions <span className="muted">(optional)</span>
+            <textarea
+              rows={2}
+              placeholder="e.g. Use IEEE format, keep it under 2 pages, formal tone…"
+              value={reviewInstructions}
+              onChange={(e) => setReviewInstructions(e.target.value)}
+            />
+          </label>
+          <p className="muted review-scope-hint">
+            Scoped to the {selected.size} paper{selected.size !== 1 ? "s" : ""} checked above.
+          </p>
+          <div className="review-actions">
+            <button
+              className="btn-primary"
+              type="submit"
+              disabled={reviewLoading || papers.length === 0 || !reviewIdea.trim() || !reviewOwnResearch.trim()}
+            >
+              {reviewLoading ? "Generating review…" : "Generate Review"}
+            </button>
+            {reviewResult && (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleDownloadPdf}
+                disabled={pdfDownloading}
+              >
+                {pdfDownloading ? "Preparing PDF…" : "Download as PDF"}
+              </button>
+            )}
+          </div>
+        </form>
+
+        {reviewLoading && (
+          <div className="review-loading">
+            <p className="muted">This may take 30–60 seconds. Generating your draft from {selected.size} paper{selected.size !== 1 ? "s" : ""}…</p>
+          </div>
+        )}
+
+        {reviewResult && (
+          <div className="answer-block">
+            <div className="answer-text">{renderRich(reviewResult.draft)}</div>
+            {reviewResult.citations?.length > 0 && (
+              <div className="citations">
+                {reviewResult.citations.map((c, i) => (
                   <div key={i} className="citation-card">
                     <span className="citation-source">
                       {c.paper_title} — {c.section_type}, p.{c.page_start}

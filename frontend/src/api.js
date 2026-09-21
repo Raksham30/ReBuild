@@ -130,4 +130,41 @@ export const api = {
             : null,
       },
     }),
+
+  // Research writer
+  write: (token, wsId, { idea, own_research, instructions, paper_ids }) =>
+    request(`/workspaces/${wsId}/research/write`, token, {
+      method: "POST",
+      body: { idea, own_research, instructions, paper_ids },
+    }),
+
+  writePdf: async (token, wsId, { idea, own_research, instructions, paper_ids }) => {
+    if (!token) {
+      const user = auth.currentUser;
+      if (!user) throw new Error("User is not logged in");
+      token = await user.getIdToken();
+    }
+    const res = await fetch(
+      `${API_BASE}/workspaces/${wsId}/research/write/pdf`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ idea, own_research, instructions, paper_ids }),
+      }
+    );
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const data = await res.json();
+        detail = data.detail || detail;
+      } catch {
+        // Response wasn't JSON
+      }
+      throw new Error(`${res.status}: ${detail}`);
+    }
+    return res.blob();
+  },
 };

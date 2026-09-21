@@ -497,6 +497,43 @@ textarea {
   font-size: 14px;
 }
 
+/* Review Builder ---------------------------------------------------------- */
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.review-form textarea,
+.review-form input[type="text"] {
+  width: 100%;
+  resize: vertical;
+}
+.review-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.review-scope-hint {
+  font-size: 13px;
+  margin: 0;
+}
+.review-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.review-loading {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--paper);
+  border-radius: 4px;
+  text-align: center;
+}
+
 @media (max-width: 560px) {
   .page {
     padding: 24px 16px 60px;
