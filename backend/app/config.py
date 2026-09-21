@@ -7,6 +7,7 @@ to a local/offline implementation where applicable.
 
 Embeddings run exclusively on Google Gemini API (gemini-embedding-001).
 """
+from __future__ import annotations
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os

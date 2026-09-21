@@ -1,3 +1,4 @@
+from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from app.auth import get_current_uid
 from app.api.workspaces import require_owned_workspace

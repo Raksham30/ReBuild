@@ -1,4 +1,8 @@
+from __future__ import annotations
+import time
+import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import (
     APIRouter,
@@ -84,6 +88,12 @@ async def upload_paper(
     uid: str = Depends(get_current_uid),
 ):
     # ---------------------------------------------------------
+    # 0. Start total upload timer
+    # ---------------------------------------------------------
+
+    t_upload_start = time.perf_counter()
+
+    # ---------------------------------------------------------
     # 1. Check workspace ownership
     # ---------------------------------------------------------
 
@@ -160,6 +170,8 @@ async def upload_paper(
         await file.close()
 
     content = b"".join(content_chunks)
+    t_file_read = time.perf_counter()
+    print(f"[TIME INSTRUMENTATION] File read took {t_file_read - t_upload_start:.2f} s")
     m_read = _mem_mb()
     print(f"[MEM INSTRUMENTATION] After file.read ({total_size} bytes): {m_read:.2f} MB (delta: {m_read - m_start:+.2f} MB)")
 
@@ -187,40 +199,59 @@ async def upload_paper(
     storage.save_paper(paper)
 
     # ---------------------------------------------------------
-    # 8. Parse, chunk, index and extract
+    # 8. Parse, chunk, index and extract (with timing + concurrency)
     # ---------------------------------------------------------
 
     try:
-        # Parse PDF
+        # ---- Parse PDF ----
+        t0_parse = time.perf_counter()
         t0_mem = _mem_mb()
         sections, num_pages = parsing.parse_pdf(local_path)
+        t1_parse = time.perf_counter()
         t1_mem = _mem_mb()
+        print(f"[TIME INSTRUMENTATION] parse_pdf took {t1_parse - t0_parse:.2f} s")
         print(f"[MEM INSTRUMENTATION] After parse_pdf ({num_pages} pages, {len(sections)} sections): {t1_mem:.2f} MB (delta: {t1_mem - t0_mem:+.2f} MB)")
 
-        # Create chunks for RAG
-        t2_mem = _mem_mb()
-        chunks = chunking.chunk_sections(
-            paper_id,
-            sections,
-        )
-        t3_mem = _mem_mb()
-        print(f"[MEM INSTRUMENTATION] After chunk_sections ({len(chunks)} chunks): {t3_mem:.2f} MB (delta: {t3_mem - t2_mem:+.2f} MB)")
+        # ---- Concurrent: chunking+indexing || extraction ----
+        def _process_chunks(secs):
+            t_chunk_start = time.perf_counter()
+            cks = chunking.chunk_sections(paper_id, secs)
+            t_chunk_end = time.perf_counter()
+            print(f"[TIME INSTRUMENTATION] chunk_sections took {t_chunk_end - t_chunk_start:.2f} s")
 
-        # Add chunks to vector index
-        t4_mem = _mem_mb()
-        indexing.index_chunks(chunks)
-        t5_mem = _mem_mb()
-        print(f"[MEM INSTRUMENTATION] After index_chunks: {t5_mem:.2f} MB (delta: {t5_mem - t4_mem:+.2f} MB)")
+            t_index_start = time.perf_counter()
+            indexing.index_chunks(cks)
+            t_index_end = time.perf_counter()
+            print(f"[TIME INSTRUMENTATION] index_chunks took {t_index_end - t_index_start:.2f} s")
+            return cks
 
-        # Extract structured information
-        t6_mem = _mem_mb()
-        fields = extraction.extract_structured_fields(
-            paper_id,
-            sections,
-        )
+        def _process_extraction(secs):
+            t_ext_start = time.perf_counter()
+            flds = extraction.extract_structured_fields(paper_id, secs)
+            t_ext_end = time.perf_counter()
+            print(f"[TIME INSTRUMENTATION] extract_structured_fields took {t_ext_end - t_ext_start:.2f} s")
+            return flds
+
+        t_concurrent_start = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_chunks = executor.submit(_process_chunks, sections)
+            future_fields = executor.submit(_process_extraction, sections)
+            try:
+                chunks_result = future_chunks.result()   # will raise if processing fails
+                fields = future_fields.result()          # will raise if processing fails
+            except Exception as exc:
+                # Propagate the exception so FastAPI returns a loud HTTPException
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+        t_concurrent_end = time.perf_counter()
+        print(f"[TIME INSTRUMENTATION] Concurrent chunk+index & extraction took {t_concurrent_end - t_concurrent_start:.2f} s")
+
         t7_mem = _mem_mb()
-        print(f"[MEM INSTRUMENTATION] After extract_structured_fields: {t7_mem:.2f} MB (delta: {t7_mem - t6_mem:+.2f} MB)")
+        print(f"[MEM INSTRUMENTATION] After extract_structured_fields: {t7_mem:.2f} MB (delta: {t7_mem - t1_mem:+.2f} MB)")
         print(f"[MEM INSTRUMENTATION] Total upload_paper end RSS: {t7_mem:.2f} MB (total delta: {t7_mem - m_start:+.2f} MB)")
+
+        t_total_upload = time.perf_counter()
+        print(f"[TIME INSTRUMENTATION] Total upload took {t_total_upload - t_upload_start:.2f} s")
 
         # Save structured extraction
         storage.save_extraction(
@@ -257,8 +288,6 @@ async def upload_paper(
         )
 
     except Exception as e:
-        import traceback
-
         traceback.print_exc()
 
         # Mark paper as failed

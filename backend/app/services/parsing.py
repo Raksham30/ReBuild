@@ -9,6 +9,7 @@ Fallback:    pypdf page-by-page text extraction + regex heading detection.
              and keeps the exact same output contract so nothing downstream
              needs to change when you switch to real Azure.
 """
+from __future__ import annotations
 import re
 from app.config import get_settings
 from app.schemas import ParsedSection, SectionType

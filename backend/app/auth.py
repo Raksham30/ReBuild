@@ -17,6 +17,7 @@ storage/search/models/orchestration stay on Azure. Every other module in
 this app only depends on get_current_uid returning a string -- it has no
 idea which identity provider produced it.
 """
+from __future__ import annotations
 from fastapi import Header, HTTPException
 from app.config import get_settings
 

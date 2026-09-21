@@ -20,6 +20,7 @@ Quota handling (shared with extraction.py via run_gemini):
   * everything exhausted -> LLMUnavailableError, which main.py turns into
                        a clean 429/503 instead of a 500 traceback.
 """
+from __future__ import annotations
 import re
 import time
 from typing import Callable, TypeVar

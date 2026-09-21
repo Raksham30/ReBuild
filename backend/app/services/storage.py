@@ -9,6 +9,7 @@ Real path:  Cosmos DB (NoSQL API), one database (ResearchDB) with four
 Fallback:   a single local JSON file with the same shape, for fully
             offline development.
 """
+from __future__ import annotations
 import json
 import os
 import uuid

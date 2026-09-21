@@ -4,6 +4,7 @@ plenty for a project-sized paper library) when configured, otherwise a
 local numpy-backed cosine index persisted to disk as .npz + .jsonl.
 Same query contract either way: search(query, paper_ids, top_k) -> list[Chunk-like dict].
 """
+from __future__ import annotations
 import json
 import os
 import numpy as np
@@ -39,13 +40,23 @@ def delete_paper_chunks(paper_ids: list[str]) -> None:
 def search_chunks_by_paper(query: str, paper_ids: list[str], per_paper_k: int = 3) -> list[dict]:
     """Top chunks for EACH paper (query embedded once). Guarantees every selected
     paper is represented -- a plain top-k over all papers can return chunks from
-    only one, which breaks compare/contrast and 'summarise each paper' questions."""
+    only one, which breaks compare/contrast and 'summarise each paper' questions.
+
+    Uses ThreadPoolExecutor(max_workers=4) to query papers in parallel."""
     if not paper_ids:
         return []
+    from concurrent.futures import ThreadPoolExecutor
     vector = embed_texts([query])[0]
-    results: list[dict] = []
-    for pid in paper_ids:
-        results.extend(search_chunks(query, [pid], top_k=per_paper_k, query_vector=vector))
+
+    def _search_one(pid):
+        return search_chunks(query, [pid], top_k=per_paper_k, query_vector=vector)
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {pid: executor.submit(_search_one, pid) for pid in paper_ids}
+        results: list[dict] = []
+        # Collect in original paper_ids order to preserve deterministic ordering
+        for pid in paper_ids:
+            results.extend(futures[pid].result())
     return results
 
 

@@ -13,6 +13,7 @@ retrieval deterministically in Python (they need specific structured
 fields, not open-ended search) but route their final synthesis step
 through the Foundry agent via generation.generate().
 """
+from __future__ import annotations
 import json
 from itertools import combinations
 from app.config import get_settings
@@ -60,7 +61,13 @@ def _paper_label(workspace_id: str, paper_id: str, cache: dict) -> str:
 
 def _answer_question_direct(workspace_id: str, question: str, paper_ids: list[str] | None) -> tuple[str, list[Citation]]:
     """Non-Foundry path: retrieve once, then generate."""
+    import time as _time
+    t_total_start = _time.perf_counter()
+
     multi = bool(paper_ids) and len(paper_ids) >= 2
+
+    # ---- Retrieval ----
+    t_retrieval_start = _time.perf_counter()
     if multi:
         # Cross-paper questions ("what do these have in common?", "summarise each")
         # need evidence from EVERY selected paper, so retrieve per paper.
@@ -69,6 +76,9 @@ def _answer_question_direct(workspace_id: str, question: str, paper_ids: list[st
         chunks = indexing.search_chunks_by_paper(broadened, paper_ids, per_paper_k=per_paper)
     else:
         chunks = indexing.search_chunks(question, paper_ids, top_k=8)
+    t_retrieval_end = _time.perf_counter()
+    print(f"[TIME INSTRUMENTATION] Retrieval took {t_retrieval_end - t_retrieval_start:.2f} s")
+
     if not chunks:
         return "No relevant content found in the papers in this workspace.", []
 
@@ -103,8 +113,18 @@ def _answer_question_direct(workspace_id: str, question: str, paper_ids: list[st
         "nothing relevant to the question at all."
     )
     user = f"Question: {question}\n\n{overviews}Sources:\n{context}"
+
+    # ---- Generation ----
+    t_gen_start = _time.perf_counter()
     answer = generation.generate(system, user, max_tokens=1200)
+    t_gen_end = _time.perf_counter()
+    print(f"[TIME INSTRUMENTATION] Generation took {t_gen_end - t_gen_start:.2f} s")
+
     citations = [_citation_from_chunk(workspace_id, c) for c in chunks]
+
+    t_total_end = _time.perf_counter()
+    print(f"[TIME INSTRUMENTATION] Total answer_question took {t_total_end - t_total_start:.2f} s")
+
     return answer, citations
 
 

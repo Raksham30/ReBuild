@@ -1,5 +1,6 @@
+from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional, List, Dict
 
 
 SectionType = Literal[

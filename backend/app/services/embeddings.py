@@ -10,7 +10,6 @@ from app.config import get_settings
 GEMINI_BATCH_SIZE = 16
 MAX_RETRIES = 5
 BASE_BACKOFF_SECONDS = 2.0
-INTER_BATCH_DELAY_SECONDS = 0.5
 
 _client = None
 
@@ -74,8 +73,6 @@ def _embed_gemini(texts: list[str]) -> list[list[float]]:
         embeddings = _retry_with_backoff(_call)
         results.extend(embeddings)
         print(f"[embeddings] Gemini batch processed ({len(batch)} items, total: {len(results)})")
-        if INTER_BATCH_DELAY_SECONDS > 0:
-            time.sleep(INTER_BATCH_DELAY_SECONDS)
 
     return results
 
