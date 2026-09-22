@@ -3,8 +3,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from test_delete import client, _add_paper  # noqa: F401  (fixture + seeding helper)
-from test_delete import UID_FOR_TEST
+from test_delete import client, _add_paper, UID  # noqa: F401  (fixture + seeding helper)
 
 
 def test_chat_history_persistence_and_scoping(client, monkeypatch):
@@ -99,23 +98,41 @@ def test_authorization_protection(client):
 
 
 def test_gemini_failure_preserves_user_message_without_fake_assistant_response(client, monkeypatch):
-    from app.services import generation
+    from app.services import generation, indexing, embeddings
+
+    monkeypatch.setattr(indexing, "embed_texts", lambda texts: [[1.0, 0.0, 0.0] for _ in texts])
+    monkeypatch.setattr(embeddings, "embed_texts", lambda texts: [[1.0, 0.0, 0.0] for _ in texts])
 
     ws = client.post("/workspaces", json={"name": "Fail WS"}).json()["workspace_id"]
     _add_paper(ws, "p1", text="Sample paper text", title="Sample")
 
     def failing_generate(system, user, max_tokens=600):
-        raise RuntimeError("429 Quota Exceeded")
+        raise generation.LLMUnavailableError("Gemini API quota exhausted", 429)
 
     monkeypatch.setattr(generation, "generate", failing_generate)
 
     # Send ask request which will fail during generation
     q = "Will this fail?"
     res = client.post(f"/workspaces/{ws}/chat/ask", json={"question": q, "paper_ids": ["p1"]})
-    assert res.status_code == 500
+    assert res.status_code == 429
 
     # User message must be preserved in history, and NO fake assistant response should be created
     hist = client.get(f"/workspaces/{ws}/chat/history").json()["messages"]
     assert len(hist) == 1
     assert hist[0]["role"] == "user"
     assert hist[0]["content"] == q
+
+
+def test_delete_workspace_cleans_chat_messages(client):
+    from app.services import storage
+
+    ws = client.post("/workspaces", json={"name": "To Delete"}).json()["workspace_id"]
+    storage.save_chat_message(ws, "user", "Hello")
+    assert len(storage.list_chat_messages(ws)) == 1
+
+    # Delete workspace
+    del_res = client.delete(f"/workspaces/{ws}")
+    assert del_res.status_code == 204
+
+    # Chat messages for that workspace must be deleted
+    assert len(storage.list_chat_messages(ws)) == 0
