@@ -18,6 +18,7 @@ client = TestClient(app)
 
 
 def test_full_upload_regression_suite():
+    app.dependency_overrides[get_current_uid] = mock_get_current_uid
     # 1. Create a test workspace
     create_ws_res = client.post("/workspaces", json={"name": "Regression Test Workspace"})
     assert create_ws_res.status_code == 200, f"Workspace creation failed: {create_ws_res.text}"

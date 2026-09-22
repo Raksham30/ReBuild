@@ -75,6 +75,18 @@ export default function Workspace() {
   const [gapLoading, setGapLoading] = useState(false);
   const [gapResult, setGapResult] = useState(null);
 
+  // Contradiction flags -- fetched in background, never blocks the UI
+  const [flags, setFlags] = useState([]);
+  const [flagsOpen, setFlagsOpen] = useState(false);
+
+  // Review Builder state
+  const [reviewIdea, setReviewIdea] = useState("");
+  const [reviewOwnResearch, setReviewOwnResearch] = useState("");
+  const [reviewInstructions, setReviewInstructions] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewResult, setReviewResult] = useState(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+
   async function loadAll() {
     try {
       const token = await getToken();
@@ -87,6 +99,20 @@ export default function Workspace() {
       setSelected(new Set(ps.map((p) => p.paper_id)));
     } catch (e) {
       setError(e.message);
+    }
+    // Fire-and-forget: flags are background data, never block workspace load
+    loadFlags();
+  }
+
+  // Fetch active (non-dismissed) flags in the background.
+  // Errors are silently swallowed -- this is supplemental info, not critical.
+  async function loadFlags() {
+    try {
+      const token = await getToken();
+      const data = await api.listFlags(token, workspaceId, false);
+      setFlags(data);
+    } catch {
+      // Intentionally silent -- flag fetch must never surface as an error
     }
   }
 
@@ -185,6 +211,18 @@ export default function Workspace() {
     }
   }
 
+  async function handleFlagAction(flagId, status) {
+    try {
+      const token = await getToken();
+      await api.updateFlagStatus(token, workspaceId, flagId, status);
+      // Remove flag from list immediately -- dismissed ones stay gone,
+      // "seen" ones are now seen and stay until dismissed or page reload.
+      setFlags((prev) => prev.filter((f) => f.flag_id !== flagId));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   function toggleSelected(id) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -211,6 +249,56 @@ export default function Workspace() {
     }
   }
 
+  // ---- Review Builder handlers ----
+
+  async function handleGenerateReview(e) {
+    e.preventDefault();
+    if (!reviewIdea.trim() || !reviewOwnResearch.trim()) return;
+    setReviewLoading(true);
+    setError("");
+    setReviewResult(null);
+    try {
+      const token = await getToken();
+      const res = await api.write(token, workspaceId, {
+        idea: reviewIdea.trim(),
+        own_research: reviewOwnResearch.trim(),
+        instructions: reviewInstructions.trim() || null,
+        paper_ids: Array.from(selected),
+      });
+      setReviewResult(res);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    setPdfDownloading(true);
+    setError("");
+    try {
+      const token = await getToken();
+      const blob = await api.writePdf(token, workspaceId, {
+        idea: reviewIdea.trim(),
+        own_research: reviewOwnResearch.trim(),
+        instructions: reviewInstructions.trim() || null,
+        paper_ids: Array.from(selected),
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "review_draft.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPdfDownloading(false);
+    }
+  }
+
   return (
     <main className="page">
       <div className="page-header">
@@ -228,6 +316,16 @@ export default function Workspace() {
             {workspace && (
               <button type="button" className="btn-link rename-link" onClick={() => setEditingWorkspace(true)}>
                 Rename
+              </button>
+            )}
+            {flags.length > 0 && (
+              <button
+                type="button"
+                className="flags-badge"
+                onClick={() => setFlagsOpen(true)}
+                title="Click to view detected contradictions"
+              >
+                ⚠ {flags.length} possible contradiction{flags.length !== 1 ? "s" : ""} found
               </button>
             )}
           </h1>
@@ -277,6 +375,76 @@ export default function Workspace() {
             </div>
           )}
         </section>
+      )}
+
+      {flagsOpen && (
+        <div className="flags-overlay" onClick={() => setFlagsOpen(false)}>
+          <div className="flags-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="flags-panel-head">
+              <h2>Possible contradictions ({flags.length})</h2>
+              <button
+                type="button"
+                className="btn-link btn-link--muted"
+                onClick={() => setFlagsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <p className="muted flags-note">
+              These were detected automatically in the background when papers were uploaded.
+              Each entry shows the two conflicting claims side by side.
+            </p>
+            {flags.length === 0 ? (
+              <p className="muted">No active flags — all have been dismissed.</p>
+            ) : (
+              <div className="flag-list">
+                {flags.map((flag) => (
+                  <div key={flag.flag_id} className="flag-entry">
+                    <p className="flag-explanation">{flag.payload.explanation}</p>
+                    <div className="flag-claims">
+                      <div className="flag-claim">
+                        <span className="flag-claim-source">{flag.payload.paper_a_title}</span>
+                        <p className="flag-claim-text">"{flag.payload.claim_a}"</p>
+                        {flag.payload.paper_a_citation && (
+                          <span className="flag-claim-loc">
+                            {flag.payload.paper_a_citation.section_type}, p.
+                            {flag.payload.paper_a_citation.page_start}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flag-claim flag-claim--b">
+                        <span className="flag-claim-source">{flag.payload.paper_b_title}</span>
+                        <p className="flag-claim-text">"{flag.payload.claim_b}"</p>
+                        {flag.payload.paper_b_citation && (
+                          <span className="flag-claim-loc">
+                            {flag.payload.paper_b_citation.section_type}, p.
+                            {flag.payload.paper_b_citation.page_start}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flag-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => handleFlagAction(flag.flag_id, "seen")}
+                      >
+                        Mark seen
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-link-danger"
+                        onClick={() => handleFlagAction(flag.flag_id, "dismissed")}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       <section className="panel">
@@ -352,6 +520,89 @@ export default function Workspace() {
             {answer.citations.length > 0 && (
               <div className="citations">
                 {answer.citations.map((c, i) => (
+                  <div key={i} className="citation-card">
+                    <span className="citation-source">
+                      {c.paper_title} — {c.section_type}, p.{c.page_start}
+                      {c.page_end !== c.page_start ? `–${c.page_end}` : ""}
+                    </span>
+                    <p className="citation-snippet">{c.snippet}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ---- Review Builder ---- */}
+      <section className="panel">
+        <h2>Review Builder</h2>
+        <form onSubmit={handleGenerateReview} className="review-form">
+          <label className="review-label">
+            Idea / thesis
+            <input
+              type="text"
+              placeholder="e.g. Transformer attention is over-parameterised for small datasets"
+              value={reviewIdea}
+              onChange={(e) => setReviewIdea(e.target.value)}
+              required
+            />
+          </label>
+          <label className="review-label">
+            Your own research / findings
+            <textarea
+              rows={4}
+              placeholder="Describe your original contributions, experiments, or observations…"
+              value={reviewOwnResearch}
+              onChange={(e) => setReviewOwnResearch(e.target.value)}
+              required
+            />
+          </label>
+          <label className="review-label">
+            Formatting instructions <span className="muted">(optional)</span>
+            <textarea
+              rows={2}
+              placeholder="e.g. Use IEEE format, keep it under 2 pages, formal tone…"
+              value={reviewInstructions}
+              onChange={(e) => setReviewInstructions(e.target.value)}
+            />
+          </label>
+          <p className="muted review-scope-hint">
+            Scoped to the {selected.size} paper{selected.size !== 1 ? "s" : ""} checked above.
+          </p>
+          <div className="review-actions">
+            <button
+              className="btn-primary"
+              type="submit"
+              disabled={reviewLoading || papers.length === 0 || !reviewIdea.trim() || !reviewOwnResearch.trim()}
+            >
+              {reviewLoading ? "Generating review…" : "Generate Review"}
+            </button>
+            {reviewResult && (
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleDownloadPdf}
+                disabled={pdfDownloading}
+              >
+                {pdfDownloading ? "Preparing PDF…" : "Download as PDF"}
+              </button>
+            )}
+          </div>
+        </form>
+
+        {reviewLoading && (
+          <div className="review-loading">
+            <p className="muted">This may take 30–60 seconds. Generating your draft from {selected.size} paper{selected.size !== 1 ? "s" : ""}…</p>
+          </div>
+        )}
+
+        {reviewResult && (
+          <div className="answer-block">
+            <div className="answer-text">{renderRich(reviewResult.draft)}</div>
+            {reviewResult.citations?.length > 0 && (
+              <div className="citations">
+                {reviewResult.citations.map((c, i) => (
                   <div key={i} className="citation-card">
                     <span className="citation-source">
                       {c.paper_title} — {c.section_type}, p.{c.page_start}

@@ -133,6 +133,37 @@ class ContradictionResponse(BaseModel):
     checked_pairs: int
 
 
+# ---- Flags (persisted background contradiction findings) ----
+
+class FlagPayload(BaseModel):
+    """The inner payload of a stored contradiction flag.
+    Field names match exactly what agent.find_new_contradiction_flags builds."""
+    paper_a_id: str
+    paper_a_title: str
+    claim_a: str                  # exact conflicting line from paper A
+    paper_a_citation: Citation
+    paper_b_id: str
+    paper_b_title: str
+    claim_b: str                  # exact conflicting line from paper B
+    paper_b_citation: Citation
+    explanation: str
+
+
+class Flag(BaseModel):
+    """Top-level flag record as stored by storage.save_flag."""
+    flag_id: str
+    workspace_id: str
+    type: str                     # e.g. "contradiction"
+    status: Literal["new", "seen", "dismissed"] = "new"
+    created_at: str
+    paper_ids_involved: List[str]
+    payload: FlagPayload
+
+
+class FlagStatusUpdate(BaseModel):
+    status: Literal["seen", "dismissed"]
+
+
 # ---- Feature 4: Research writer ----
 
 class ResearchWriteRequest(BaseModel):

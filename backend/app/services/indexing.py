@@ -215,6 +215,7 @@ def _load_local():
 
 def _index_local(chunks: list[Chunk]) -> None:
     chunks_path, vectors_path = _paths()
+    os.makedirs(os.path.dirname(chunks_path), exist_ok=True)
     existing_chunks, existing_vectors = _load_local()
     new_vectors = np.array(embed_texts([c.text for c in chunks]))
 
