@@ -48,8 +48,18 @@ def _get_firebase_app():
                 f"against wherever uvicorn was launched from -- either run uvicorn "
                 f"from inside backend/, or set an absolute path in backend/.env."
             )
-        cred = credentials.Certificate(resolved)
-        _firebase_app = firebase_admin.initialize_app(cred)
+        try:
+            import json
+            with open(resolved, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "private_key" in data and isinstance(data["private_key"], str):
+                data["private_key"] = data["private_key"].replace("\\n", "\n")
+            cred = credentials.Certificate(data)
+            _firebase_app = firebase_admin.initialize_app(cred)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize Firebase Admin SDK from {resolved!r}: {e}"
+            )
     return _firebase_app
 
 

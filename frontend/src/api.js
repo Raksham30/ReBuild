@@ -132,6 +132,9 @@ export const api = {
     }),
 
   // Chat
+  getChatHistory: (token, wsId) =>
+    request(`/workspaces/${wsId}/chat/history`, token),
+
   ask: (token, wsId, question, paperIds) =>
     request(`/workspaces/${wsId}/chat/ask`, token, {
       method: "POST",
@@ -151,7 +154,7 @@ export const api = {
       body: { idea, own_research, instructions, paper_ids },
     }),
 
-  writePdf: async (token, wsId, { idea, own_research, instructions, paper_ids }) => {
+  writePdf: async (token, wsId, { idea, own_research, instructions, paper_ids, draft }) => {
     if (!token) {
       const user = auth.currentUser;
       if (!user) throw new Error("User is not logged in");
@@ -165,7 +168,7 @@ export const api = {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ idea, own_research, instructions, paper_ids }),
+        body: JSON.stringify({ idea, own_research, instructions, paper_ids, draft }),
       }
     );
     if (!res.ok) {

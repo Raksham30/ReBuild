@@ -1,11 +1,12 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from app.auth import get_current_uid
 from app.api.workspaces import require_owned_workspace
 from app.schemas import (
     GapAnalysisRequest, GapAnalysisResponse,
     ContradictionRequest, ContradictionResponse,
-    ResearchWriteRequest, ResearchWriteResponse,
+    ResearchWriteRequest, ResearchWriteResponse, ResearchWritePdfRequest,
 )
 from app.services import agent, storage
 
@@ -43,3 +44,27 @@ def write(workspace_id: str, req: ResearchWriteRequest, uid: str = Depends(get_c
     paper_ids = _resolve_paper_ids(workspace_id, req.paper_ids)
     draft, citations = agent.write_research_draft(workspace_id, req.idea, req.own_research, req.instructions, paper_ids)
     return ResearchWriteResponse(draft=draft, citations=citations)
+
+
+@router.post("/write/pdf")
+def write_pdf(workspace_id: str, req: ResearchWritePdfRequest, uid: str = Depends(get_current_uid)):
+    require_owned_workspace(workspace_id, uid)
+    if req.draft:
+        draft = req.draft
+    else:
+        paper_ids = _resolve_paper_ids(workspace_id, req.paper_ids)
+        draft, _ = agent.write_research_draft(
+            workspace_id,
+            req.idea or "Literature Review",
+            req.own_research or "",
+            req.instructions,
+            paper_ids
+        )
+
+    pdf_bytes = agent.generate_review_pdf(draft, title=req.idea or "Literature Review Paper")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=literature_review.pdf"}
+    )
+

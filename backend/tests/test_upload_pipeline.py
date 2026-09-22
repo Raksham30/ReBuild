@@ -27,11 +27,23 @@ def test_full_upload_regression_suite():
     print(f"\n[TEST 1 PASSED] Workspace created: {ws_id}")
 
     # Paths to generated test files
-    small_pdf_path = os.path.join("tests", "data", "small_test.pdf")
-    normal_pdf_path = os.path.join("tests", "data", "normal_paper.pdf")
-    large_under_20mb_path = os.path.join("tests", "data", "large_under_20mb.pdf")
-    over_20mb_path = os.path.join("tests", "data", "over_20mb.pdf")
-    non_pdf_path = os.path.join("tests", "data", "non_pdf.txt")
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    small_pdf_path = os.path.join(data_dir, "small_test.pdf")
+    normal_pdf_path = os.path.join(data_dir, "normal_paper.pdf")
+    large_under_20mb_path = os.path.join(data_dir, "real_large_under_20mb.pdf")
+    if not os.path.exists(large_under_20mb_path):
+        large_under_20mb_path = os.path.join(data_dir, "large_under_20mb.pdf")
+    
+    over_20mb_path = os.path.join(data_dir, "over_20mb.pdf")
+    if not os.path.exists(over_20mb_path):
+        with open(over_20mb_path, "wb") as f:
+            f.write(b"%PDF-1.4 " + b"X" * (20 * 1024 * 1024 + 1024))
+            
+    non_pdf_path = os.path.join(data_dir, "non_pdf.txt")
+    if not os.path.exists(non_pdf_path):
+        with open(non_pdf_path, "w") as f:
+            f.write("This is a plain text file, not a PDF.")
+
 
     # 2. Upload small PDF (< 1 MB)
     with open(small_pdf_path, "rb") as f:

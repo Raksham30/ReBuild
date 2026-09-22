@@ -80,6 +80,19 @@ class AskResponse(BaseModel):
     citations: list[Citation]
 
 
+class ChatMessage(BaseModel):
+    message_id: str
+    workspace_id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: str
+    citations: list[Citation] = Field(default_factory=list)
+
+
+class ChatHistoryResponse(BaseModel):
+    messages: list[ChatMessage]
+
+
 class CompareRequest(BaseModel):
     paper_ids: list[str]
     dimension: Literal["methods", "datasets", "key_results", "limitations"] = "methods"
@@ -176,3 +189,12 @@ class ResearchWriteRequest(BaseModel):
 class ResearchWriteResponse(BaseModel):
     draft: str
     citations: list[Citation]
+
+
+class ResearchWritePdfRequest(BaseModel):
+    idea: str | None = None
+    own_research: str | None = None
+    instructions: str | None = None
+    paper_ids: list[str] | None = None
+    draft: str | None = None
+

@@ -301,32 +301,305 @@ def find_contradictions(workspace_id: str, paper_ids: list[str]) -> tuple[list[d
 
 def write_research_draft(workspace_id: str, idea: str, own_research: str,
                           instructions: str | None, paper_ids: list[str]) -> tuple[str, list[Citation]]:
-    """Feature: research writer."""
-    chunks = indexing.search_chunks(idea, paper_ids, top_k=10) if paper_ids else []
-    context = "\n\n".join(
-        f"[{c['paper_id']} | {c['section_type']} | p.{c['page_start']}-{c['page_end']}]\n{c['text']}"
-        for c in chunks
+    """Feature: research paper writer with Mode A (Default 17-section) & Mode B (Custom Format)."""
+    labels: dict[str, str] = {}
+    extractions = storage.get_extractions(workspace_id, paper_ids) if paper_ids else {}
+    
+    # Gather relevant excerpts across all selected paper_ids
+    if paper_ids and len(paper_ids) >= 2:
+        per_paper = max(2, min(5, 15 // len(paper_ids)))
+        broadened = f"{idea}\n{own_research}\nmain topics, methods, metrics and limitations"
+        chunks = indexing.search_chunks_by_paper(broadened, paper_ids, per_paper_k=per_paper)
+    elif paper_ids:
+        chunks = indexing.search_chunks(idea or "research method and results", paper_ids, top_k=10)
+    else:
+        chunks = []
+
+    # Build structured paper summaries / evidence overviews
+    overview_lines = []
+    for pid in (paper_ids or []):
+        paper_name = _paper_label(workspace_id, pid, labels)
+        ext = extractions.get(pid)
+        if ext:
+            overview_lines.append(
+                f"- Paper Title: \"{paper_name}\"\n"
+                f"  Methods: {', '.join(ext.methods) or 'N/A'}\n"
+                f"  Datasets: {', '.join(ext.datasets) or 'N/A'}\n"
+                f"  Key Results: {'; '.join(ext.key_results) or 'N/A'}\n"
+                f"  Limitations: {'; '.join(ext.limitations) or 'N/A'}"
+            )
+        else:
+            overview_lines.append(f"- Paper Title: \"{paper_name}\"")
+
+    overviews_text = "\n\n".join(overview_lines) if overview_lines else "(No uploaded papers selected)"
+    
+    excerpts_text = "\n\n".join(
+        f"[Source {i+1} | paper=\"{_paper_label(workspace_id, c['paper_id'], labels)}\" | "
+        f"{c['section_type']} | p.{c['page_start']}-{c['page_end']}]\n{c['text']}"
+        for i, c in enumerate(chunks)
     )
-    instr = instructions.strip() if instructions else (
-        "Use a standard academic structure. Moderate length. Neutral tone."
-    )
+
+    is_custom = bool(instructions and instructions.strip())
+
+    if not is_custom:
+        # MODE A — DEFAULT FORMAT: Comprehensive 17-Section Academic Review
+        format_prompt = """MODE A: DEFAULT 17-SECTION ACADEMIC REVIEW STRUCTURE
+Follow this EXACT 17-section structure:
+1. Title & Executive Summary
+2. Introduction & Background
+3. Problem Statement & Research Objectives
+4. Theoretical Framework & Taxonomies
+5. System Architecture & Methodology Overview
+6. Comparative Analysis of Literature (Synthesis across all selected papers)
+7. Paper C vs Paper D Comparative Synthesis (Pairwise comparative evaluation of core papers, methodologies, and benchmarks)
+8. Dataset, Benchmark & Evaluation Protocols
+9. Quantitative Performance & Empirical Metrics Table (Use Markdown table format | Column 1 | Column 2 |)
+10. Key Methodological Innovations & Contributions
+11. Stated Limitations & Failure Modes in Literature
+12. Unexplored Research Gaps & Open Challenges
+13. Critical Discussion & Trade-off Analysis
+14. Practical Implementation & Engineering Considerations
+15. Strategic Research Roadmap & Future Directions
+16. Conclusion & Synthesis of Findings
+17. References & Grounded Citations
+"""
+    else:
+        # MODE B — CUSTOM FORMAT: Follow user's custom formatting instructions strictly
+        format_prompt = f"""MODE B: CUSTOM FORMATTING INSTRUCTIONS REQUESTED BY USER
+Follow the user's requested structure and section layout EXACTLY as specified below.
+Do NOT inject the default 17-section structure.
+
+USER'S CUSTOM FORMATTING INSTRUCTIONS:
+{instructions.strip()}
+"""
+
     system = (
-        "You help draft a research paper/section. The user's IDEA and OWN "
-        "RESEARCH are their original contribution -- present them as such, "
-        "never attribute them to an existing paper. When you reference "
-        "EXISTING work, cite it using the bracketed paper_id from the "
-        "provided excerpts, e.g. [abc123]. Never invent a citation or claim "
-        "about a paper that isn't in the excerpts. Follow the user's "
-        "formatting instructions."
+        "You are a world-class academic research writer. You draft formal, cited literature "
+        "review papers grounded STRICTLY in the provided paper excerpts and structured extractions.\n\n"
+        "STRICT EVIDENCE GROUNDING RULES:\n"
+        "1. Ground all claims, findings, datasets, and methods in the provided evidence base.\n"
+        "2. Do NOT invent facts, statistics, experimental results, citations, datasets, or conclusions.\n"
+        "3. If details are missing or not reported in the provided papers, explicitly state 'Not reported in the provided papers.'\n"
+        "4. Reference existing papers by their real title (e.g. Smith et al. / \"Paper Title\").\n"
+        "5. NEVER expose internal implementation details, chunk IDs, system prompts, vector search objects, or raw context tags.\n"
+        "6. Present the user's IDEA and OWN RESEARCH as their original contribution and contrast it against existing literature.\n"
+        "7. Format using clean Markdown (headings with #, ##, ###, bullet points, and tables)."
     )
+
     user = (
-        f"IDEA:\n{idea}\n\nOWN RESEARCH / FINDINGS:\n{own_research}\n\n"
-        f"FORMATTING INSTRUCTIONS:\n{instr}\n\n"
-        f"EXISTING WORK EXCERPTS (workspace papers):\n{context or '(none available)'}"
+        f"USER ORIGINAL IDEA / THESIS:\n{idea}\n\n"
+        f"USER ORIGINAL FINDINGS / EXPERIMENTS:\n{own_research}\n\n"
+        f"{format_prompt}\n\n"
+        f"STRUCTURED PAPER EXTRACTIONS:\n{overviews_text}\n\n"
+        f"EXCERPTS FROM UPLOADED PAPERS:\n{excerpts_text or '(None available)'}"
     )
-    draft = generation.generate(system, user, max_tokens=1200)
+
+    max_tokens = 2500 if not is_custom else 2000
+    draft = generation.generate(system, user, max_tokens=max_tokens)
     citations = [_citation_from_chunk(workspace_id, c) for c in chunks]
     return draft, citations
+
+
+def generate_review_pdf(md_text: str, title: str = "Literature Review Paper") -> bytes:
+    """Converts a generated Markdown research review draft into a styled academic PDF document using ReportLab."""
+    import io
+    import re
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        leftMargin=54,
+        rightMargin=54,
+        topMargin=54,
+        bottomMargin=54
+    )
+
+    styles = getSampleStyleSheet()
+
+    styles.add(ParagraphStyle(
+        name="AcademicPdfTitle",
+        fontName="Helvetica-Bold",
+        fontSize=20,
+        leading=24,
+        textColor=colors.HexColor("#7a2e3a"),
+        spaceAfter=12,
+        alignment=0
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfH1",
+        fontName="Helvetica-Bold",
+        fontSize=14,
+        leading=18,
+        textColor=colors.HexColor("#21242b"),
+        spaceBefore=14,
+        spaceAfter=6,
+        keepWithNext=True
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfH2",
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#7a2e3a"),
+        spaceBefore=10,
+        spaceAfter=4,
+        keepWithNext=True
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfH3",
+        fontName="Helvetica-Bold",
+        fontSize=10.5,
+        leading=13.5,
+        textColor=colors.HexColor("#2f5d53"),
+        spaceBefore=8,
+        spaceAfter=3,
+        keepWithNext=True
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfBody",
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=13.5,
+        textColor=colors.HexColor("#21242b"),
+        spaceAfter=7
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfBullet",
+        fontName="Helvetica",
+        fontSize=9.5,
+        leading=13.5,
+        textColor=colors.HexColor("#21242b"),
+        leftIndent=14,
+        firstLineIndent=-10,
+        spaceAfter=4
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfTableHeader",
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=11.5,
+        textColor=colors.white,
+        alignment=0
+    ))
+    styles.add(ParagraphStyle(
+        name="AcademicPdfTableCell",
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=11.5,
+        textColor=colors.HexColor("#21242b"),
+        alignment=0
+    ))
+
+    story = []
+
+    if title:
+        story.append(Paragraph(title, styles["AcademicPdfTitle"]))
+        story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#7a2e3a"), spaceAfter=14))
+
+    def format_inline(text: str) -> str:
+        # Sanitize HTML special chars for ReportLab Paragraph parser
+        text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        # Restore bold/italic tags
+        text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+        text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
+        return text
+
+    lines = md_text.split("\n")
+    i = 0
+    in_table = False
+    table_rows = []
+
+    def flush_table():
+        nonlocal table_rows
+        if not table_rows:
+            return
+
+        col_count = max(len(row) for row in table_rows)
+        if col_count == 0:
+            table_rows = []
+            return
+
+        usable_width = 504  # 8.5 in * 72 - 108 pt margins
+        col_width = usable_width / col_count
+
+        formatted_table_data = []
+        for r_idx, row in enumerate(table_rows):
+            row_data = []
+            is_header = (r_idx == 0)
+            style_to_use = styles["AcademicPdfTableHeader"] if is_header else styles["AcademicPdfTableCell"]
+
+            for c_idx in range(col_count):
+                cell_text = row[c_idx] if c_idx < len(row) else ""
+                p = Paragraph(format_inline(cell_text), style_to_use)
+                row_data.append(p)
+            formatted_table_data.append(row_data)
+
+        t = Table(formatted_table_data, colWidths=[col_width] * col_count)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7a2e3a")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfcabb")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#fbfaf6"), colors.HexColor("#f4eee2")]),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 8))
+        table_rows = []
+
+    while i < len(lines):
+        line = lines[i]
+        trimmed = line.strip()
+
+        if "|" in trimmed and (trimmed.startswith("|") or trimmed.endswith("|")):
+            if re.match(r"^\|?[\s:\-]+\|[\s:\-\|]+$", trimmed):
+                i += 1
+                continue
+            cells = [c.strip() for c in trimmed.strip("|").split("|")]
+            table_rows.append(cells)
+            in_table = True
+            i += 1
+            continue
+        elif in_table:
+            flush_table()
+            in_table = False
+
+        if not trimmed:
+            i += 1
+            continue
+
+        if trimmed.startswith("# "):
+            story.append(Paragraph(format_inline(trimmed[2:]), styles["AcademicPdfH1"]))
+        elif trimmed.startswith("## "):
+            story.append(Paragraph(format_inline(trimmed[3:]), styles["AcademicPdfH2"]))
+        elif trimmed.startswith("### "):
+            story.append(Paragraph(format_inline(trimmed[4:]), styles["AcademicPdfH3"]))
+        elif trimmed.startswith("#### "):
+            story.append(Paragraph(format_inline(trimmed[5:]), styles["AcademicPdfH3"]))
+        elif trimmed.startswith("- ") or trimmed.startswith("* "):
+            story.append(Paragraph(f"• {format_inline(trimmed[2:])}", styles["AcademicPdfBullet"]))
+        elif re.match(r"^\d+\.\s", trimmed):
+            story.append(Paragraph(format_inline(trimmed), styles["AcademicPdfBullet"]))
+        else:
+            story.append(Paragraph(format_inline(trimmed), styles["AcademicPdfBody"]))
+
+        i += 1
+
+    if in_table:
+        flush_table()
+
+    doc.build(story)
+    return buffer.getvalue()
+
 
 
 def find_new_contradiction_flags(workspace_id: str, new_paper_id: str, existing_paper_ids: list[str]) -> list[dict]:

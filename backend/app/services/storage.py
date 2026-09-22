@@ -16,7 +16,7 @@ import uuid
 import threading
 from datetime import datetime, timezone
 from app.config import get_settings
-from app.schemas import Workspace, Paper, StructuredExtraction
+from app.schemas import Workspace, Paper, StructuredExtraction, ChatMessage, Citation
 
 _lock = threading.Lock()
 
@@ -182,18 +182,20 @@ def get_workspace(workspace_id: str) -> Workspace | None:
 
 
 def delete_workspace(workspace_id: str, owner_uid: str) -> None:
-    """Deletes the workspace record plus every paper, extraction and flag in it.
+    """Deletes the workspace record plus every paper, extraction, flag, and chat message in it.
     (Chunks in the search index and files in blob/disk are removed by the caller.)"""
     for p in list_papers(workspace_id):
         delete_paper(workspace_id, p.paper_id)
     for f in list_flags(workspace_id, include_dismissed=True):
         _delete_flag(workspace_id, f["flag_id"])
+    delete_chat_messages(workspace_id)
     settings = get_settings()
     if settings.use_cosmos:
         _cosmos_delete("workspaces", "/owner_uid", workspace_id)
     else:
         with _local_db() as db:
             db["workspaces"].pop(workspace_id, None)
+
 
 
 # ==================== Papers ====================
@@ -360,6 +362,63 @@ def _delete_flag(workspace_id: str, flag_id: str) -> None:
             db.get("flags", {}).pop(flag_id, None)
 
 
+# ==================== Chat Messages ====================
+
+def save_chat_message(
+    workspace_id: str,
+    role: str,
+    content: str,
+    citations: list[Citation] | None = None
+) -> ChatMessage:
+    msg = ChatMessage(
+        message_id=str(uuid.uuid4())[:12],
+        workspace_id=workspace_id,
+        role=role,  # "user" or "assistant"
+        content=content,
+        created_at=_now(),
+        citations=citations or [],
+    )
+    settings = get_settings()
+    if settings.use_cosmos:
+        item = msg.model_dump()
+        item["id"] = msg.message_id
+        _with_retry(lambda: _container("chat_messages", "/workspace_id").upsert_item(item))
+    else:
+        with _local_db() as db:
+            db.setdefault("chat_messages", {})[msg.message_id] = msg.model_dump()
+    return msg
+
+
+def list_chat_messages(workspace_id: str) -> list[ChatMessage]:
+    settings = get_settings()
+    if settings.use_cosmos:
+        items = list(_container("chat_messages", "/workspace_id").query_items(
+            query="SELECT * FROM c WHERE c.workspace_id=@wid" + _NOT_DELETED,
+            parameters=[{"name": "@wid", "value": workspace_id}],
+            partition_key=workspace_id,
+        ))
+        msgs = [ChatMessage(**i) for i in items]
+        msgs.sort(key=lambda m: m.created_at)
+        return msgs
+    with _local_db() as db:
+        raw_msgs = [m for m in db.get("chat_messages", {}).values() if m.get("workspace_id") == workspace_id]
+        msgs = [ChatMessage(**m) for m in raw_msgs]
+        msgs.sort(key=lambda m: m.created_at)
+        return msgs
+
+
+def delete_chat_messages(workspace_id: str) -> None:
+    settings = get_settings()
+    msgs = list_chat_messages(workspace_id)
+    if settings.use_cosmos:
+        for m in msgs:
+            _cosmos_delete("chat_messages", "/workspace_id", m.message_id, workspace_id)
+    else:
+        with _local_db() as db:
+            for m in msgs:
+                db.get("chat_messages", {}).pop(m.message_id, None)
+
+
 # ==================== Cosmos client ====================
 
 _cosmos_client = None
@@ -402,8 +461,9 @@ class _LocalDbHandle:
             with open(self.path) as f:
                 self.data = json.load(f)
         else:
-            self.data = {"workspaces": {}, "papers": {}, "extractions": {}, "flags": {}}
+            self.data = {"workspaces": {}, "papers": {}, "extractions": {}, "flags": {}, "chat_messages": {}}
         self.data.setdefault("flags", {})
+        self.data.setdefault("chat_messages", {})
         return self.data
 
     def __exit__(self, *exc):
@@ -423,3 +483,4 @@ class _LocalDbHandle:
 
 def _local_db():
     return _LocalDbHandle()
+
