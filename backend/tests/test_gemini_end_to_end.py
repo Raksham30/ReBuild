@@ -12,6 +12,7 @@ app.dependency_overrides[get_current_uid] = lambda: TEST_UID
 client = TestClient(app)
 
 def test_gemini_e2e_flow():
+    app.dependency_overrides[get_current_uid] = lambda: TEST_UID
     # Confirm health endpoint
     health_res = client.get("/health").json()
     print("Health check response:", health_res)

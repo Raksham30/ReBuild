@@ -75,6 +75,10 @@ export default function Workspace() {
   const [gapLoading, setGapLoading] = useState(false);
   const [gapResult, setGapResult] = useState(null);
 
+  // Contradiction flags -- fetched in background, never blocks the UI
+  const [flags, setFlags] = useState([]);
+  const [flagsOpen, setFlagsOpen] = useState(false);
+
   // Review Builder state
   const [reviewIdea, setReviewIdea] = useState("");
   const [reviewOwnResearch, setReviewOwnResearch] = useState("");
@@ -95,6 +99,20 @@ export default function Workspace() {
       setSelected(new Set(ps.map((p) => p.paper_id)));
     } catch (e) {
       setError(e.message);
+    }
+    // Fire-and-forget: flags are background data, never block workspace load
+    loadFlags();
+  }
+
+  // Fetch active (non-dismissed) flags in the background.
+  // Errors are silently swallowed -- this is supplemental info, not critical.
+  async function loadFlags() {
+    try {
+      const token = await getToken();
+      const data = await api.listFlags(token, workspaceId, false);
+      setFlags(data);
+    } catch {
+      // Intentionally silent -- flag fetch must never surface as an error
     }
   }
 
@@ -193,6 +211,18 @@ export default function Workspace() {
     }
   }
 
+  async function handleFlagAction(flagId, status) {
+    try {
+      const token = await getToken();
+      await api.updateFlagStatus(token, workspaceId, flagId, status);
+      // Remove flag from list immediately -- dismissed ones stay gone,
+      // "seen" ones are now seen and stay until dismissed or page reload.
+      setFlags((prev) => prev.filter((f) => f.flag_id !== flagId));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   function toggleSelected(id) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -288,6 +318,16 @@ export default function Workspace() {
                 Rename
               </button>
             )}
+            {flags.length > 0 && (
+              <button
+                type="button"
+                className="flags-badge"
+                onClick={() => setFlagsOpen(true)}
+                title="Click to view detected contradictions"
+              >
+                ⚠ {flags.length} possible contradiction{flags.length !== 1 ? "s" : ""} found
+              </button>
+            )}
           </h1>
         )}
         <p className="page-subtitle">Upload PDFs, then ask questions answered strictly from what's here.</p>
@@ -335,6 +375,76 @@ export default function Workspace() {
             </div>
           )}
         </section>
+      )}
+
+      {flagsOpen && (
+        <div className="flags-overlay" onClick={() => setFlagsOpen(false)}>
+          <div className="flags-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="flags-panel-head">
+              <h2>Possible contradictions ({flags.length})</h2>
+              <button
+                type="button"
+                className="btn-link btn-link--muted"
+                onClick={() => setFlagsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <p className="muted flags-note">
+              These were detected automatically in the background when papers were uploaded.
+              Each entry shows the two conflicting claims side by side.
+            </p>
+            {flags.length === 0 ? (
+              <p className="muted">No active flags — all have been dismissed.</p>
+            ) : (
+              <div className="flag-list">
+                {flags.map((flag) => (
+                  <div key={flag.flag_id} className="flag-entry">
+                    <p className="flag-explanation">{flag.payload.explanation}</p>
+                    <div className="flag-claims">
+                      <div className="flag-claim">
+                        <span className="flag-claim-source">{flag.payload.paper_a_title}</span>
+                        <p className="flag-claim-text">"{flag.payload.claim_a}"</p>
+                        {flag.payload.paper_a_citation && (
+                          <span className="flag-claim-loc">
+                            {flag.payload.paper_a_citation.section_type}, p.
+                            {flag.payload.paper_a_citation.page_start}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flag-claim flag-claim--b">
+                        <span className="flag-claim-source">{flag.payload.paper_b_title}</span>
+                        <p className="flag-claim-text">"{flag.payload.claim_b}"</p>
+                        {flag.payload.paper_b_citation && (
+                          <span className="flag-claim-loc">
+                            {flag.payload.paper_b_citation.section_type}, p.
+                            {flag.payload.paper_b_citation.page_start}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flag-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => handleFlagAction(flag.flag_id, "seen")}
+                      >
+                        Mark seen
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-link-danger"
+                        onClick={() => handleFlagAction(flag.flag_id, "dismissed")}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       <section className="panel">

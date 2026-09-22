@@ -111,6 +111,19 @@ export const api = {
   deletePaper: (token, wsId, paperId) =>
     request(`/workspaces/${wsId}/papers/${paperId}`, token, { method: "DELETE" }),
 
+  // Contradiction flags (populated automatically in background after upload)
+  listFlags: (token, wsId, includeDismissed = false) =>
+    request(
+      `/workspaces/${wsId}/flags${includeDismissed ? "?include_dismissed=true" : ""}`,
+      token
+    ),
+
+  updateFlagStatus: (token, wsId, flagId, status) =>
+    request(`/workspaces/${wsId}/flags/${flagId}`, token, {
+      method: "PATCH",
+      body: { status },
+    }),
+
   // Research gaps across every paper in the workspace
   gapAnalysis: (token, wsId) =>
     request(`/workspaces/${wsId}/research/gap-analysis`, token, {

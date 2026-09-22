@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import workspaces, papers, chat, research
+from app.api import workspaces, papers, chat, research, flags
 from app.config import get_settings
 from app.services.generation import LLMUnavailableError
 
@@ -22,6 +22,7 @@ app.include_router(workspaces.router)
 app.include_router(papers.router)
 app.include_router(chat.router)
 app.include_router(research.router)
+app.include_router(flags.router)
 
 
 @app.get("/health")
