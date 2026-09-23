@@ -32,3 +32,11 @@ def ask(workspace_id: str, req: AskRequest, uid: str = Depends(get_current_uid))
 
     return AskResponse(answer=answer, citations=citations)
 
+
+@router.delete("/history", status_code=204)
+@router.delete("", status_code=204)
+def delete_chat(workspace_id: str, uid: str = Depends(get_current_uid)):
+    """Delete all chat messages for this workspace."""
+    require_owned_workspace(workspace_id, uid)
+    storage.delete_chat_messages(workspace_id)
+

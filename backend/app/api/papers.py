@@ -48,16 +48,22 @@ def _run_background_flags(workspace_id: str, new_paper_id: str):
 
     Contradiction checking is incremental:
     only compare the newly uploaded paper against existing papers.
-
-    (Gap analysis is no longer run here: it cost one Gemini request per upload,
-    its result could not be saved, and the "Research Gap" button now runs it on demand.)
     """
-
     try:
         all_papers = [
             p.paper_id
             for p in storage.list_papers(workspace_id)
+            if p.status == "indexed"
         ]
+
+        if len(all_papers) < 2:
+            return
+
+        storage.save_contradiction_status(
+            workspace_id,
+            status="running",
+            analyzed_paper_count=len(all_papers)
+        )
 
         existing = [
             pid
@@ -65,19 +71,28 @@ def _run_background_flags(workspace_id: str, new_paper_id: str):
             if pid != new_paper_id
         ]
 
-        # Find contradictions between the new paper
-        # and previously uploaded papers.
-        for flag in agent.find_new_contradiction_flags(
+        new_flags = agent.find_new_contradiction_flags(
             workspace_id,
             new_paper_id,
             existing,
-        ):
+        )
+
+        for flag in new_flags:
             storage.save_flag(workspace_id, flag)
 
-    except Exception:
-        # Background processing should never cause
-        # the upload request to fail.
-        pass
+        storage.save_contradiction_status(
+            workspace_id,
+            status="completed",
+            analyzed_paper_count=len(all_papers),
+            error=None
+        )
+
+    except Exception as exc:
+        storage.save_contradiction_status(
+            workspace_id,
+            status="failed",
+            error=str(exc)
+        )
 
 
 @router.post("/upload", response_model=Paper)

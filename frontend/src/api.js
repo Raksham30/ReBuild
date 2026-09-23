@@ -124,6 +124,12 @@ export const api = {
       body: { status },
     }),
 
+  getContradictionStatus: (token, wsId) =>
+    request(`/workspaces/${wsId}/flags/status`, token),
+
+  runContradictionAnalysis: (token, wsId) =>
+    request(`/workspaces/${wsId}/flags/run`, token, { method: "POST" }),
+
   // Research gaps across every paper in the workspace
   gapAnalysis: (token, wsId) =>
     request(`/workspaces/${wsId}/research/gap-analysis`, token, {
@@ -134,6 +140,9 @@ export const api = {
   // Chat
   getChatHistory: (token, wsId) =>
     request(`/workspaces/${wsId}/chat/history`, token),
+
+  deleteChatHistory: (token, wsId) =>
+    request(`/workspaces/${wsId}/chat/history`, token, { method: "DELETE" }),
 
   ask: (token, wsId, question, paperIds) =>
     request(`/workspaces/${wsId}/chat/ask`, token, {

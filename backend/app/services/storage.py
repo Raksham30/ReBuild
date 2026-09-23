@@ -335,6 +335,7 @@ def list_flags(workspace_id: str, include_dismissed: bool = False) -> list[dict]
     else:
         with _local_db() as db:
             items = [f for f in db.get("flags", {}).values() if f["workspace_id"] == workspace_id]
+    items = [f for f in items if f.get("item_type") != "contradiction_status"]
     if not include_dismissed:
         items = [f for f in items if f.get("status") != "dismissed"]
     return items
@@ -351,6 +352,66 @@ def update_flag_status(workspace_id: str, flag_id: str, status: str) -> None:
         with _local_db() as db:
             if flag_id in db.get("flags", {}):
                 db["flags"][flag_id]["status"] = status
+
+
+def get_contradiction_status(workspace_id: str) -> dict:
+    settings = get_settings()
+    if settings.use_cosmos:
+        try:
+            item = _container("flags", "/workspace_id").read_item(
+                item=f"status_{workspace_id}", partition_key=workspace_id
+            )
+            if not item.get("deleted"):
+                return {
+                    "status": item.get("status", "not_started"),
+                    "last_checked_at": item.get("last_checked_at"),
+                    "analyzed_paper_count": item.get("analyzed_paper_count", 0),
+                    "error": item.get("error"),
+                }
+        except Exception:
+            pass
+    else:
+        with _local_db() as db:
+            s = db.get("contradiction_status", {}).get(workspace_id)
+            if s:
+                return s
+    return {
+        "status": "not_started",
+        "last_checked_at": None,
+        "analyzed_paper_count": 0,
+        "error": None,
+    }
+
+
+def save_contradiction_status(
+    workspace_id: str,
+    status: str,
+    last_checked_at: str | None = None,
+    analyzed_paper_count: int | None = None,
+    error: str | None = None,
+) -> dict:
+    existing = get_contradiction_status(workspace_id)
+    doc = {
+        "id": f"status_{workspace_id}",
+        "item_type": "contradiction_status",
+        "workspace_id": workspace_id,
+        "status": status,
+        "last_checked_at": last_checked_at if last_checked_at is not None else (_now() if status == "completed" else existing.get("last_checked_at")),
+        "analyzed_paper_count": analyzed_paper_count if analyzed_paper_count is not None else existing.get("analyzed_paper_count", 0),
+        "error": error,
+    }
+    settings = get_settings()
+    if settings.use_cosmos:
+        _container("flags", "/workspace_id").upsert_item(doc)
+    else:
+        with _local_db() as db:
+            db.setdefault("contradiction_status", {})[workspace_id] = doc
+    return {
+        "status": doc["status"],
+        "last_checked_at": doc["last_checked_at"],
+        "analyzed_paper_count": doc["analyzed_paper_count"],
+        "error": doc["error"],
+    }
 
 
 def _delete_flag(workspace_id: str, flag_id: str) -> None:

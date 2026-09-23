@@ -174,7 +174,14 @@ class Flag(BaseModel):
 
 
 class FlagStatusUpdate(BaseModel):
-    status: Literal["seen", "dismissed"]
+    status: Literal["new", "seen", "dismissed"]
+
+
+class ContradictionStatus(BaseModel):
+    status: Literal["not_started", "running", "completed", "failed"] = "not_started"
+    last_checked_at: Optional[str] = None
+    analyzed_paper_count: int = 0
+    error: Optional[str] = None
 
 
 # ---- Feature 4: Research writer ----
