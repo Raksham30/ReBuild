@@ -9,7 +9,7 @@ export default function Home() {
       <section className="home-hero">
         <div className="home-badge">
           <span className="home-badge-dot"></span>
-          Academic Research Intelligence Platform • V3
+          Academic Research Intelligence Platform • 
         </div>
 
         <h1 className="home-title">Research Paper Assistant</h1>
