@@ -41,16 +41,12 @@ class Settings(BaseSettings):
     azure_openai_chat_deployment: str | None = None
     azure_openai_api_version: str = "2024-10-21"
 
-    # --- Gemini (sole embedding + chat/extraction provider, no Azure/offline
-    # fallback -- Azure's free/student tier doesn't grant usable Azure
-    # OpenAI quota for embeddings OR chat completions) ---
+    # --- Gemini (sole embedding provider) ---
+        # --- Gemini (sole embedding provider) ---
     gemini_api_key: str | None = None
     gemini_embedding_model: str = "models/gemini-embedding-001"
     gemini_embedding_dim: int = 3072
-    gemini_chat_model: str = "gemini-flash-latest"  # Google's auto-updating current-flash alias
-    # Comma-separated models tried in order when the primary is out of quota.
-    # Free-tier quotas are per model, so a different model has its own bucket.
-    gemini_chat_fallback_models: str = "gemini-flash-lite-latest,gemini-2.5-flash"
+    gemini_chat_model: str = "gemini-flash-latest"
 
     # --- Azure AI Foundry Agent Service (orchestration) ---
     foundry_project_endpoint: str | None = None   # https://<account>.services.ai.azure.com/api/projects/<project>
@@ -87,16 +83,12 @@ class Settings(BaseSettings):
         return bool(self.ai_search_url and self.ai_search_admin_key)
 
     @property
-    def use_gemini_embeddings(self) -> bool:
-        return bool(self.gemini_api_key)
+    def use_azure_openai(self) -> bool:
+        return bool(self.azure_openai_endpoint and self.azure_openai_key and self.azure_openai_chat_deployment)
 
     @property
-    def gemini_chat_models(self) -> list[str]:
-        """Primary chat model followed by fallbacks, de-duplicated, in order."""
-        models = [self.gemini_chat_model] + [
-            m.strip() for m in self.gemini_chat_fallback_models.split(",") if m.strip()
-        ]
-        return list(dict.fromkeys(models))
+    def use_gemini_embeddings(self) -> bool:
+        return bool(self.gemini_api_key)
 
     @property
     def use_foundry_agent(self) -> bool:

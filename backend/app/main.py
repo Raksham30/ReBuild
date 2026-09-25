@@ -36,8 +36,8 @@ def health():
             "file_storage": "blob-storage" if settings.use_blob else "local-disk-fallback",
             "document_intelligence": "azure" if settings.use_docint else "local-fallback",
             "embeddings": "gemini" if settings.use_gemini_embeddings else "NOT CONFIGURED (set GEMINI_API_KEY)",
-            "chat_generation": "gemini" if settings.use_gemini_embeddings else "NOT CONFIGURED (set GEMINI_API_KEY)",
+            "chat_generation": "azure-openai" if settings.use_azure_openai else "NOT CONFIGURED (set AZURE_OPENAI_KEY & AZURE_OPENAI_ENDPOINT)",
             "search_index": "azure" if settings.use_azure_search else "local-fallback",
-            "agent_orchestration": "foundry-agent-service" if settings.use_foundry_agent else "gemini",
+            "agent_orchestration": "foundry-agent-service" if settings.use_foundry_agent else "azure-openai",
         },
     }

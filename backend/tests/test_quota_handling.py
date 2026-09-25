@@ -1,4 +1,4 @@
-"""Gemini quota exhaustion must surface as a clean 429 with a readable message, not a 500."""
+"""LLM quota/rate-limit exhaustion must surface as a clean 429 with a readable message, not a 500."""
 import os
 import sys
 
@@ -21,7 +21,7 @@ def test_llm_quota_error_becomes_429(monkeypatch):
     monkeypatch.setattr(chat.storage, "list_papers", lambda ws: [])
 
     def boom(*a, **k):
-        raise LLMUnavailableError("Gemini API quota exhausted", 429)
+        raise LLMUnavailableError("Azure OpenAI quota or rate limit exceeded", 429)
     monkeypatch.setattr(agent, "answer_question", boom)
 
     try:
